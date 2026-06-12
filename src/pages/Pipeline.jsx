@@ -174,10 +174,11 @@ export default function Pipeline() {
     try {
       const res = await API.post(`/leads/${leadId}/follow-up`, { note, next_date: nextDate || undefined });
       const updated = res.data.data;
-      setLeads(prev => prev.map(l => l._id === leadId ? { ...l, ...updated } : l));
+      // Update selected panel immediately so Activity History refreshes
       setSelected(prev => ({ ...prev, lead: prev.lead ? { ...prev.lead, ...updated } : { ...prev, ...updated } }));
       setNote('');
       setNextDate('');
+      load(); // Refresh list to reflect new note
     } catch { }
     finally { setSavingNote(false); }
   };
