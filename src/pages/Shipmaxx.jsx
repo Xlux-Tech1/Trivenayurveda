@@ -499,10 +499,10 @@ export default function Shipmaxx() {
     order_number: '',
     pickup_address_id: localStorage.getItem('smx_pickup') || '370',
     channel_id: localStorage.getItem('smx_channel') || '595',
-    payment_method: 'prepaid',
+    payment_method: 'cod',
     customer: { name: '', phone: '', address: '', pincode: '', city: '', state: '', email: '', landmark: '' },
     products: [{ sku: '', name: '', price: '', quantity: 1 }],
-    package: { weight: 0.5, length: 10, width: 10, height: 10 },
+    package: { weight: 0.5, length: 15, width: 10, height: 6 },
     other_charges: 0,
     total_discount: 0,
   });

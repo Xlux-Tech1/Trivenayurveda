@@ -93,11 +93,9 @@ export default function Verification() {
   const [showPatientTypeModal, setShowPatientTypeModal] = useState(false);
   const [selectedPatientType, setSelectedPatientType] = useState('new');
 
-
   const load = useCallback(async () => {
     try {
       const data = await getVerificationRecords(department ? { department } : {});
-      console.log("FETCHED VERIFICATION RECORDS HOT RELOADED:", data.slice(0, 5));
       setRecords(Array.isArray(data) ? data : []);
     } catch (e) {
       setError(e?.response?.data?.message || e.message || 'Failed to load');
@@ -139,13 +137,12 @@ export default function Verification() {
     }
   }, [canManage]);
 
-
   // Handle openId from search navigation — runs after records are populated
   useEffect(() => {
     const openId = searchParams.get('openId');
     if (!openId) return;
     const allRecs = [...records, ...onHoldRecords];
-    if (allRecs.length === 0) return; // wait for records to load
+    if (allRecs.length === 0) return;
     const match = allRecs.find(r =>
       r._id === openId ||
       r.lead?._id === openId ||
@@ -168,11 +165,9 @@ export default function Verification() {
 
   const flattenRecord = (r) => {
     const taskData = r.task && typeof r.task === 'object' ? r.task : {};
-    // Only spread task fields that are NOT empty to avoid overwriting populated lead fields
     const filteredTaskData = Object.fromEntries(
       Object.entries(taskData).filter(([_, v]) => v !== null && v !== undefined && v !== '')
     );
-
     return {
       ...r,
       ...filteredTaskData,
@@ -188,21 +183,21 @@ export default function Verification() {
   };
 
   const filterRecords = (recs) => {
-    const startOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    const today = startOf(new Date());
+    // Use IST midnight (UTC+5:30) for correct day boundaries
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+    const nowIST = new Date(Date.now() + IST_OFFSET);
+    const todayIST = new Date(Date.UTC(nowIST.getUTCFullYear(), nowIST.getUTCMonth(), nowIST.getUTCDate()) - IST_OFFSET);
+    const yesterdayIST = new Date(todayIST.getTime() - 24 * 60 * 60 * 1000);
     let filtered = recs.filter(r => r.status !== 'on_hold');
 
-    if (dayFilter === 'today') filtered = filtered.filter(r => new Date(r.createdAt) >= today);
+    if (dayFilter === 'today') filtered = filtered.filter(r => new Date(r.createdAt) >= todayIST);
     else if (dayFilter === 'yesterday') {
-      const y = new Date(today); y.setDate(y.getDate() - 1);
-      filtered = filtered.filter(r => { const d = new Date(r.createdAt); return d >= y && d < today; });
-    }
-    else if (dayFilter === 'custom' && customDate) {
-      const from = new Date(customDate);
-      const to = new Date(from); to.setDate(to.getDate() + 1);
+      filtered = filtered.filter(r => { const d = new Date(r.createdAt); return d >= yesterdayIST && d < todayIST; });
+    } else if (dayFilter === 'custom' && customDate) {
+      const from = new Date(`${customDate}T00:00:00.000+05:30`);
+      const to = new Date(from.getTime() + 24 * 60 * 60 * 1000);
       filtered = filtered.filter(r => { const d = new Date(r.createdAt); return d >= from && d < to; });
     }
-    // 'all' — no date filter
 
     if (search) {
       const q = search.toLowerCase();
@@ -214,7 +209,6 @@ export default function Verification() {
         r.district?.toLowerCase().includes(q)
       );
     }
-
     return filtered;
   };
 
@@ -230,7 +224,7 @@ export default function Verification() {
       filtered = filtered.filter(r => { const d = new Date(r.onHoldAt || r.updatedAt || r.createdAt); return d >= y && d < today; });
     } else if (ohDayFilter === 'custom' && ohCustomDate) {
       const from = new Date(ohCustomDate);
-      const to = new Date(from); to.setDate(to.getDate() + 1);
+      const to = new Date(from); to.setDate(from.getDate() + 1);
       filtered = filtered.filter(r => { const d = new Date(r.onHoldAt || r.updatedAt || r.createdAt); return d >= from && d < to; });
     }
     if (ohSearch) {
@@ -278,11 +272,17 @@ export default function Verification() {
       await updateVerificationRecord(selected._id, verificationFields);
       if (selected.lead?._id) await updateLead(selected.lead._id, { name, phone });
 
-      const freshData = await getVerificationRecords();
+      // Reload both pending and on-hold lists so neither tab goes stale
+      const [freshData, freshOnHold] = await Promise.all([
+        getVerificationRecords(),
+        getOnHoldVerificationRecords(department ? { department } : {}),
+      ]);
       const freshRecords = Array.isArray(freshData) ? freshData : [];
       setRecords(freshRecords);
+      setOnHoldRecords(Array.isArray(freshOnHold) ? freshOnHold : []);
 
-      const freshSelected = freshRecords.find(r => r._id === selected._id);
+      const freshSelected = freshRecords.find(r => r._id === selected._id)
+        || (Array.isArray(freshOnHold) ? freshOnHold : []).find(r => r._id === selected._id);
       const flattened = freshSelected ? flattenRecord(freshSelected) : { ...selected, ...verificationFields };
       setSelected({ ...flattened, lead: { ...(flattened.lead || selected.lead || {}), name, phone } });
       setEditMode(false);
@@ -294,7 +294,6 @@ export default function Verification() {
     setUpdating(selected._id);
     try {
       if (status === 'pending' && !selected.task) {
-        // Pipeline-only on-hold record — just update lead status
         const leadId = selected.lead?._id || selected.lead;
         if (leadId) await updateLead(leadId, { status: 'new' });
         setOnHoldRecords(prev => prev.filter(r => r._id !== selected._id));
@@ -319,7 +318,6 @@ export default function Verification() {
       }
     } catch (err) {
       if (err.response?.status === 404) {
-        // Record is gone, refresh the list
         setRecords(prev => prev.filter(r => r._id !== selected._id));
         setOnHoldRecords(prev => prev.filter(r => r._id !== selected._id));
         setSelected(null);
@@ -362,12 +360,8 @@ export default function Verification() {
 
   const handleSelect = async (r) => {
     const isActive = selected?._id === r._id;
-    if (isActive) {
-      setSelected(null);
-      return;
-    }
-    const flattened = flattenRecord(r);
-    setSelected(flattened);
+    if (isActive) { setSelected(null); return; }
+    setSelected(flattenRecord(r));
   };
 
   const sf = (k, v) => setEditForm(f => ({ ...f, [k]: v }));
@@ -381,11 +375,15 @@ export default function Verification() {
       const result = Array.isArray(data) ? data[0] : data;
       if (result?.Status === 'Success') {
         const office = result.PostOffice?.[0];
-        if (office) {
-          setEditForm(f => ({ ...f, district: office.District, state: office.State }));
-        }
+        if (office) setEditForm(f => ({ ...f, district: office.District, state: office.State }));
       }
     } catch { }
+  };
+
+  // Avatar color helper — works for both pending and on-hold records
+  const getAvatarColor = (id) => {
+    const idx = [...filteredRecords, ...filteredOnHold].findIndex(r => r._id === id);
+    return PIN_COLORS[Math.max(0, idx) % PIN_COLORS.length];
   };
 
   if (loading) return (
@@ -403,8 +401,7 @@ export default function Verification() {
         <div className="flex gap-2 shrink-0">
           {[['pending', 'Pending'], ['on_hold', 'On Hold']].map(([val, label]) => (
             <button key={val} onClick={() => { setActiveTab(val); setSelected(null); }}
-              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${activeTab === val ? 'bg-green-600 text-white border-green-600 shadow-md' : 'bg-white text-gray-400 border-gray-100 hover:bg-gray-50'
-                }`}>
+              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${activeTab === val ? 'bg-green-600 text-white border-green-600 shadow-md' : 'bg-white text-gray-400 border-gray-100 hover:bg-gray-50'}`}>
               {label}
               {val === 'on_hold' && onHoldRecords.length > 0 && (
                 <span className="ml-1.5 bg-gray-500 text-white text-[9px] px-1.5 py-0.5 rounded-full">{onHoldRecords.length}</span>
@@ -418,13 +415,11 @@ export default function Verification() {
           <div className="flex items-center gap-3 shrink-0 glass px-4 py-3 rounded-2xl border border-white/50 shadow-sm">
             {[['all', 'All'], ['today', 'Today'], ['yesterday', 'Yesterday']].map(([val, label]) => (
               <button key={val} onClick={() => { setOhDayFilter(val); setOhCustomDate(''); }}
-                className={`px-3 py-2 rounded-xl text-xs font-bold border whitespace-nowrap transition-all shrink-0 ${ohDayFilter === val ? 'bg-gray-700 text-white border-gray-700 shadow-md' : 'bg-white text-gray-400 border-gray-100 hover:bg-gray-50'
-                  }`}>{label}</button>
+                className={`px-3 py-2 rounded-xl text-xs font-bold border whitespace-nowrap transition-all shrink-0 ${ohDayFilter === val ? 'bg-gray-700 text-white border-gray-700 shadow-md' : 'bg-white text-gray-400 border-gray-100 hover:bg-gray-50'}`}>{label}</button>
             ))}
             <input type="date" value={ohCustomDate} max={new Date().toISOString().slice(0, 10)}
               onChange={e => { setOhCustomDate(e.target.value); setOhDayFilter(e.target.value ? 'custom' : 'all'); }}
-              className={`px-3 py-2 rounded-xl text-xs font-bold border transition cursor-pointer outline-none shrink-0 ${ohDayFilter === 'custom' ? 'bg-gray-700 text-white border-gray-700 shadow-md' : 'bg-white text-gray-400 border-gray-100'
-                }`} />
+              className={`px-3 py-2 rounded-xl text-xs font-bold border transition cursor-pointer outline-none shrink-0 ${ohDayFilter === 'custom' ? 'bg-gray-700 text-white border-gray-700 shadow-md' : 'bg-white text-gray-400 border-gray-100'}`} />
             <div className="relative flex-1">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                 <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
@@ -437,11 +432,8 @@ export default function Verification() {
               {filteredOnHold.length} On Hold
             </div>
             {canManage && (
-              <select
-                value={department}
-                onChange={e => setDepartment(e.target.value)}
-                className="px-3 py-2.5 rounded-xl border border-gray-100 bg-white text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-400/20 transition shadow-sm shrink-0"
-              >
+              <select value={department} onChange={e => setDepartment(e.target.value)}
+                className="px-3 py-2.5 rounded-xl border border-gray-100 bg-white text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-400/20 transition shadow-sm shrink-0">
                 <option value="">All Depts</option>
                 {DEPARTMENTS.map(d => <option key={d} value={d}>{d.toUpperCase()}</option>)}
               </select>
@@ -451,17 +443,13 @@ export default function Verification() {
 
         {/* Pending Filters */}
         <div className={`flex items-center gap-3 shrink-0 glass px-4 py-3 rounded-2xl border border-white/50 shadow-sm ${activeTab === 'on_hold' ? 'hidden' : ''}`}>
-          {/* Day filters */}
           {[['all', 'All'], ['today', 'Today'], ['yesterday', 'Yesterday']].map(([val, label]) => (
             <button key={val} onClick={() => { setDayFilter(val); setCustomDate(''); }}
-              className={`px-3 py-2 rounded-xl text-xs font-bold border whitespace-nowrap transition-all shrink-0 ${dayFilter === val ? 'bg-green-600 text-white border-green-600 shadow-md' : 'bg-white text-gray-400 border-gray-100 hover:bg-gray-50'
-                }`}>{label}</button>
+              className={`px-3 py-2 rounded-xl text-xs font-bold border whitespace-nowrap transition-all shrink-0 ${dayFilter === val ? 'bg-green-600 text-white border-green-600 shadow-md' : 'bg-white text-gray-400 border-gray-100 hover:bg-gray-50'}`}>{label}</button>
           ))}
           <input type="date" value={customDate} max={new Date().toISOString().slice(0, 10)}
             onChange={e => { setCustomDate(e.target.value); setDayFilter(e.target.value ? 'custom' : 'all'); }}
-            className={`px-3 py-2 rounded-xl text-xs font-bold border transition cursor-pointer outline-none shrink-0 ${dayFilter === 'custom' ? 'bg-green-600 text-white border-green-600 shadow-md' : 'bg-white text-gray-400 border-gray-100'
-              }`} />
-          {/* Search */}
+            className={`px-3 py-2 rounded-xl text-xs font-bold border transition cursor-pointer outline-none shrink-0 ${dayFilter === 'custom' ? 'bg-green-600 text-white border-green-600 shadow-md' : 'bg-white text-gray-400 border-gray-100'}`} />
           <div className="relative flex-1">
             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
               <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
@@ -470,25 +458,21 @@ export default function Verification() {
               className="w-full pl-9 pr-16 py-2.5 rounded-xl border border-gray-100 bg-white text-sm text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-green-400/20 focus:border-green-400 transition shadow-sm" />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-300">{filteredRecords.length}</span>
           </div>
-          {/* Pending badge */}
           <div className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-xs font-bold shadow-md shrink-0"
             style={{ background: 'linear-gradient(135deg,#16a34a,#15803d)' }}>
             <VerifyIcon className="w-3.5 h-3.5" />
             {filteredRecords.length} Pending ✓
           </div>
           {canManage && (
-            <select
-              value={department}
-              onChange={e => setDepartment(e.target.value)}
-              className="px-3 py-2.5 rounded-xl border border-gray-100 bg-white text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-400/20 transition shadow-sm shrink-0"
-            >
+            <select value={department} onChange={e => setDepartment(e.target.value)}
+              className="px-3 py-2.5 rounded-xl border border-gray-100 bg-white text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-400/20 transition shadow-sm shrink-0">
               <option value="">All Depts</option>
               {DEPARTMENTS.map(d => <option key={d} value={d}>{d.toUpperCase()}</option>)}
             </select>
           )}
         </div>
 
-        {/* List (Scrollable) */}
+        {/* List */}
         <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar">
           {activeTab === 'on_hold' ? (
             filteredOnHold.length === 0 ? (
@@ -533,12 +517,8 @@ export default function Verification() {
                             Until {new Date(r.onHoldUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                           </span>
                         )}
-                        {flattened.assignedTo?.name && (
-                          <span className="text-[10px] text-gray-400 hidden sm:block">Assigned: {flattened.assignedTo.name}</span>
-                        )}
-                        {flattened.department && (
-                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-600 uppercase">{flattened.department}</span>
-                        )}
+                        {flattened.assignedTo?.name && <span className="text-[10px] text-gray-400 hidden sm:block">Assigned: {flattened.assignedTo.name}</span>}
+                        {flattened.department && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-600 uppercase">{flattened.department}</span>}
                       </div>
                     </div>
                   );
@@ -559,23 +539,14 @@ export default function Verification() {
                 const color = PIN_COLORS[i % PIN_COLORS.length];
                 const isActive = selected?._id === r._id;
                 const flattened = flattenRecord(r);
-                if (i === 0) console.log("RENDER FIRST ITEM:", flattened.title, "DEPT:", flattened.department);
                 return (
-                  <div
-                    key={r._id}
-                    onClick={() => handleSelect(r)}
-                    className={`relative flex items-center gap-4 px-4 py-3.5 rounded-2xl cursor-pointer transition-all duration-200 border
-                      ${isActive
-                        ? 'bg-green-50 border-green-200 shadow-sm'
-                        : 'bg-white border-gray-100 hover:border-green-200 hover:bg-green-50/30 hover:shadow-sm'}`}>
-
+                  <div key={r._id} onClick={() => handleSelect(r)}
+                    className={`relative flex items-center gap-4 px-4 py-3.5 rounded-2xl cursor-pointer transition-all duration-200 border ${isActive ? 'bg-green-50 border-green-200 shadow-sm' : 'bg-white border-gray-100 hover:border-green-200 hover:bg-green-50/30 hover:shadow-sm'}`}>
                     <div className={`absolute left-0 top-3 bottom-3 w-1 rounded-r-full ${color}`} />
                     <span className="text-[11px] font-bold text-gray-300 w-5 text-center shrink-0 ml-2">{i + 1}</span>
-
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-bold shrink-0 ${color}`}>
                       {initials(flattened.lead?.name || flattened.title)}
                     </div>
-
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-semibold text-gray-800 truncate">{flattened.title}</p>
@@ -597,26 +568,17 @@ export default function Verification() {
                             {flattened.lead.phone}
                           </span>
                         )}
-
                       </div>
                     </div>
-
                     <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${flattened.status === 'on_hold' ? 'bg-gray-50 text-gray-600 border-gray-100' :
-                          flattened.status === 'verified' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
-                            flattened.status === 'rejected' ? 'bg-rose-50 text-rose-700 border-rose-100' :
-                              'bg-amber-50 text-amber-700 border-amber-100'
-                        }`}>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${flattened.status === 'on_hold' ? 'bg-gray-50 text-gray-600 border-gray-100' : flattened.status === 'verified' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : flattened.status === 'rejected' ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
                         {flattened.status?.replace(/_/g, ' ').toUpperCase()}
                       </span>
-                      {flattened.assignedTo?.name && (
-                        <span className="text-[10px] text-gray-400 hidden sm:block">Assigned: {flattened.assignedTo.name}</span>
-                      )}
+                      {flattened.assignedTo?.name && <span className="text-[10px] text-gray-400 hidden sm:block">Assigned: {flattened.assignedTo.name}</span>}
                       {(flattened.department || flattened.lead?.department || flattened.task?.department) && (
                         <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-600 uppercase">{flattened.department || flattened.lead?.department || flattened.task?.department}</span>
                       )}
                     </div>
-
                     <button onClick={(e) => handleDelete(r._id, e)}
                       className="w-8 h-8 flex items-center justify-center rounded-xl bg-red-50 text-red-500 hover:bg-red-100 border border-red-100 transition shrink-0 font-bold text-base">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" /></svg>
@@ -629,14 +591,14 @@ export default function Verification() {
         </div>
       </div>
 
-      {/* ── RIGHT DETAIL PANEL ── */}
+      {/* ── RIGHT DETAIL PANEL (Desktop) ── */}
       {selected && (
         <div className="hidden lg:flex flex-col w-[45%] bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden h-full">
           <div className="h-1.5 shrink-0" style={{ background: 'linear-gradient(90deg,#16a34a,#15803d,#16a34a)' }} />
 
           <div className="px-5 py-4 flex items-center justify-between border-b border-gray-50 shrink-0">
             <div className="flex items-center gap-2.5">
-              <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-bold ${PIN_COLORS[filteredRecords.findIndex(r => r._id === selected._id) % PIN_COLORS.length]}`}>
+              <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-bold ${getAvatarColor(selected._id)}`}>
                 {initials(selected.lead?.name || selected.title)}
               </div>
               <div>
@@ -680,7 +642,6 @@ export default function Verification() {
                   <div><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Call Date</label>
                     <input type="date" className={`${inputCls} mt-1`} value={editForm.reminderAt} onChange={e => sf('reminderAt', e.target.value)} /></div>
                 </div>
-
                 <SectionHead label="Address" />
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2">
@@ -705,7 +666,6 @@ export default function Verification() {
                   <div><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">State</label>
                     <input className={`${inputCls} mt-1`} value={editForm.state} onChange={e => sf('state', e.target.value)} /></div>
                 </div>
-
                 <div className="flex gap-2 pt-2">
                   <button type="submit" disabled={saving} className="flex-1 py-2 rounded-xl text-xs font-bold text-white bg-green-600 hover:bg-green-700 transition disabled:opacity-50">
                     {saving ? 'Saving...' : 'Save Changes'}
@@ -727,16 +687,13 @@ export default function Verification() {
                       : <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-xs font-black uppercase"><span className="w-2 h-2 rounded-full bg-blue-500" />New Patient</span>
                     }
                   </span>
-                  <button type="button" onClick={() => {
-                    setSelectedPatientType(isOldPatientVerification(selected) ? String(getDisplayKit(selected) || 2) : 'new');
-                    setShowPatientTypeModal(true);
-                  }}
+                  <button type="button" onClick={() => { setSelectedPatientType(isOldPatientVerification(selected) ? String(getDisplayKit(selected) || 2) : 'new'); setShowPatientTypeModal(true); }}
                     className="text-[10px] font-bold text-green-600 hover:bg-green-50 px-2 py-0.5 rounded border border-green-200 transition">
                     Change
                   </button>
                 </div>
                 <div className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 w-28 shrink-0 mt-0.5">Assigned To (Verifier)</span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 w-28 shrink-0 mt-0.5">Assigned To</span>
                   <span className="text-sm text-gray-800 font-medium capitalize flex-1">{selected.assignedTo?.name || '—'}</span>
                   {user?.role === 'admin' && (
                     <button type="button" onClick={() => { setAssignTo(selected.assignedTo?._id || selected.assignedTo || ''); setShowAssignModal(true); }}
@@ -766,10 +723,6 @@ export default function Verification() {
                 <DetailRow label="Pincode" value={selected.pincode || selected.lead?.pincode} />
                 <DetailRow label="Landmark" value={selected.landmark || selected.lead?.landmark} />
 
-                {!(selected.address || selected.lead?.address || selected.houseNo || selected.lead?.houseNo || selected.cityVillage || selected.lead?.cityVillage || selected.pincode || selected.lead?.pincode) && (
-                  <p className="text-[10px] text-gray-400 italic py-1 px-1">Address details not provided for this lead.</p>
-                )}
-
                 {selected.status === 'on_hold' && (
                   <>
                     <SectionHead label="Hold Info" />
@@ -792,12 +745,10 @@ export default function Verification() {
           </div>
 
           {!editMode && (
-            <div className="px-5 py-4 border-t border-gray-50 flex flex-col gap-2 overflow-y-auto max-h-64 shrink-0 bg-white">
+            <div className="px-5 py-4 border-t border-gray-50 flex flex-col gap-2 shrink-0 bg-white">
               {selected?.status === 'on_hold' ? (
                 <div className="space-y-2">
-                  <button
-                    onClick={() => handleStatusUpdate('pending')}
-                    disabled={updating}
+                  <button onClick={() => handleStatusUpdate('pending')} disabled={updating}
                     className="w-full py-3 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98] shadow-md bg-gradient-to-r from-blue-500 to-blue-600 disabled:opacity-50">
                     Move to Pending
                   </button>
@@ -812,27 +763,19 @@ export default function Verification() {
               ) : (
                 <>
                   <div className="flex gap-2">
-                    <button
-                      onClick={() => handleStatusUpdate('verified')}
-                      disabled={updating}
+                    <button onClick={() => handleStatusUpdate('verified')} disabled={updating}
                       className="flex-1 py-3 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98] shadow-md shadow-emerald-900/10 bg-gradient-to-r from-emerald-500 to-emerald-600 disabled:opacity-50">
                       <VerifyIcon /> Verified
                     </button>
-
                     {showOnHoldPicker ? (
                       <div className="flex-[1.5] flex flex-col gap-1.5 bg-gray-50 p-2.5 rounded-xl border border-gray-200">
-                        <input
-                          placeholder="Reason (e.g. call back later)"
-                          value={onHoldReason}
-                          onChange={e => setOnHoldReason(e.target.value)}
-                          className="w-full bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-gray-400"
-                        />
+                        <input placeholder="Reason (e.g. call back later)" value={onHoldReason} onChange={e => setOnHoldReason(e.target.value)}
+                          className="w-full bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-gray-400" />
                         <input type="date" value={onHoldDate} onChange={e => setOnHoldDate(e.target.value)}
                           min={new Date().toISOString().slice(0, 10)}
                           className="w-full bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-[11px] focus:outline-none" />
                         <div className="flex gap-1.5">
-                          <button
-                            onClick={() => { handleStatusUpdate('on_hold', onHoldDate, onHoldReason); setShowOnHoldPicker(false); setOnHoldReason(''); setOnHoldDate(''); }}
+                          <button onClick={() => { handleStatusUpdate('on_hold', onHoldDate, onHoldReason); setShowOnHoldPicker(false); setOnHoldReason(''); setOnHoldDate(''); }}
                             disabled={!onHoldDate || !onHoldReason}
                             className="flex-1 py-1.5 bg-gray-800 text-white text-[10px] font-bold rounded-lg disabled:opacity-40 transition">
                             Confirm
@@ -847,7 +790,6 @@ export default function Verification() {
                       </button>
                     )}
                   </div>
-
                   <button onClick={handleReadyToShipment}
                     className="w-full py-3 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98] shadow-md shadow-amber-900/10 bg-gradient-to-r from-amber-500 to-amber-600">
                     Ready to Shipment
@@ -869,7 +811,7 @@ export default function Verification() {
                 ×
               </button>
               <div className="flex items-center gap-4 pr-8">
-                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-bold text-white shadow-xl ${PIN_COLORS[filteredRecords.findIndex(r => r._id === selected._id) % PIN_COLORS.length]}`}>
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-bold text-white shadow-xl ${getAvatarColor(selected._id)}`}>
                   {initials(selected.lead?.name || selected.title)}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -912,10 +854,7 @@ export default function Verification() {
                         : <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-xs font-black uppercase"><span className="w-2 h-2 rounded-full bg-blue-500" />New Patient</span>
                       }
                     </span>
-                    <button type="button" onClick={() => {
-                      setSelectedPatientType(isOldPatientVerification(selected) ? String(getDisplayKit(selected) || 2) : 'new');
-                      setShowPatientTypeModal(true);
-                    }}
+                    <button type="button" onClick={() => { setSelectedPatientType(isOldPatientVerification(selected) ? String(getDisplayKit(selected) || 2) : 'new'); setShowPatientTypeModal(true); }}
                       className="text-[10px] font-bold text-green-600 hover:bg-green-50 px-2 py-0.5 rounded border border-green-200 transition">
                       Change
                     </button>
@@ -958,7 +897,6 @@ export default function Verification() {
                       </svg>
                       READY TO SHIPMENT
                     </button>
-
                     <button onClick={(e) => handleDelete(selected._id, e)}
                       className="w-full py-3 mt-2 rounded-xl text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-100 transition-all hover:bg-rose-100 active:scale-[0.98] flex items-center justify-center gap-2">
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -976,30 +914,30 @@ export default function Verification() {
 
       {showAssignModal && (
         <Modal title="Assign Verification Task" onClose={() => setShowAssignModal(false)}>
-           <form onSubmit={async (e) => {
-             e.preventDefault();
-             setSaving(true);
-             try {
-               await updateVerificationRecord(selected._id, { assignedTo: assignTo });
-               await load();
-               await loadOnHold();
-               setSelected(prev => ({ ...prev, assignedTo: allUsers.find(u => u._id === assignTo) || prev.assignedTo }));
-               setShowAssignModal(false);
-             } catch (err) {
-               alert('Assignment failed: ' + (err.response?.data?.message || err.message));
-             } finally {
-               setSaving(false);
-             }
-           }} className="space-y-4">
-             <div>
-               <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Select Verifier</label>
-               <select required className={inputCls} value={assignTo} onChange={e => setAssignTo(e.target.value)}>
-                 <option value="">Select staff</option>
-                 {allUsers.map(u => <option key={u._id} value={u._id}>{u.name} ({u.role?.toUpperCase()})</option>)}
-               </select>
-             </div>
-             <button type="submit" disabled={saving} className="w-full py-3 bg-green-600 text-white text-xs font-bold rounded-xl shadow-md transition-all">Assign Now</button>
-           </form>
+          <form onSubmit={async (e) => {
+            e.preventDefault();
+            setSaving(true);
+            try {
+              await updateVerificationRecord(selected._id, { assignedTo: assignTo });
+              await load();
+              await loadOnHold();
+              setSelected(prev => ({ ...prev, assignedTo: allUsers.find(u => u._id === assignTo) || prev.assignedTo }));
+              setShowAssignModal(false);
+            } catch (err) {
+              alert('Assignment failed: ' + (err.response?.data?.message || err.message));
+            } finally {
+              setSaving(false);
+            }
+          }} className="space-y-4">
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Select Verifier</label>
+              <select required className={inputCls} value={assignTo} onChange={e => setAssignTo(e.target.value)}>
+                <option value="">Select staff</option>
+                {allUsers.map(u => <option key={u._id} value={u._id}>{u.name} ({u.role?.toUpperCase()})</option>)}
+              </select>
+            </div>
+            <button type="submit" disabled={saving} className="w-full py-3 bg-green-600 text-white text-xs font-bold rounded-xl shadow-md transition-all">Assign Now</button>
+          </form>
         </Modal>
       )}
 
@@ -1021,9 +959,7 @@ export default function Verification() {
               const freshRecords = Array.isArray(freshData) ? freshData : [];
               setRecords(freshRecords);
               const freshSelected = freshRecords.find(r => r._id === selected._id);
-              if (freshSelected) {
-                setSelected(flattenRecord(freshSelected));
-              }
+              if (freshSelected) setSelected(flattenRecord(freshSelected));
               setShowPatientTypeModal(false);
             } catch (err) {
               alert('Update failed: ' + (err.response?.data?.message || err.message));
@@ -1042,22 +978,13 @@ export default function Verification() {
                   { value: '5', label: '5th Kit', color: 'amber' },
                   { value: '6', label: '6th Kit', color: 'amber' },
                 ].map(opt => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setSelectedPatientType(opt.value)}
+                  <button key={opt.value} type="button" onClick={() => setSelectedPatientType(opt.value)}
                     className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold border-2 transition-all ${
                       selectedPatientType === opt.value
-                        ? opt.color === 'blue'
-                          ? 'bg-blue-50 text-blue-700 border-blue-400 shadow-md'
-                          : 'bg-amber-50 text-amber-700 border-amber-400 shadow-md'
+                        ? opt.color === 'blue' ? 'bg-blue-50 text-blue-700 border-blue-400 shadow-md' : 'bg-amber-50 text-amber-700 border-amber-400 shadow-md'
                         : 'bg-white text-gray-500 border-gray-100 hover:border-gray-300'
                     }`}>
-                    <span className={`w-2 h-2 rounded-full ${
-                      selectedPatientType === opt.value
-                        ? opt.color === 'blue' ? 'bg-blue-500' : 'bg-amber-500'
-                        : 'bg-gray-300'
-                    }`} />
+                    <span className={`w-2 h-2 rounded-full ${selectedPatientType === opt.value ? (opt.color === 'blue' ? 'bg-blue-500' : 'bg-amber-500') : 'bg-gray-300'}`} />
                     {opt.label}
                   </button>
                 ))}

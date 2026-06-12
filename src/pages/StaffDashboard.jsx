@@ -88,7 +88,6 @@ export default function StaffDashboard() {
   const navigate = useNavigate();
   const { success, error, info } = useToast();
   const [stats, setStats] = useState(null);
-  const [verifications, setVerifications] = useState([]);
   const [todayLists, setTodayLists] = useState({ cnpList: [], callAgainList: [], interestedList: [], notInterestedList: [] });
   const [monthlyChart, setMonthlyChart] = useState([]);
   const [openSection, setOpenSection] = useState(null);
@@ -130,11 +129,10 @@ export default function StaffDashboard() {
         }
       }).catch(() => {});
 
-      const [s, staffS, vData, lists, chart, att] = await Promise.allSettled([
+      const [s, staffS, lists, chart, att] = await Promise.allSettled([
         fetchStats(), 
         fetchStaffStats(),
-        fetchStaffVerifications(), 
-        fetchStaffTodayLists(), 
+        fetchStaffTodayLists(),
         fetchStaffMonthlyChart(), 
         attendanceSvc.getTodayStatus()
       ]);
@@ -145,8 +143,7 @@ export default function StaffDashboard() {
           ...(staffS.status === 'fulfilled' ? staffS.value : {})
         });
       }
-      if (vData.status === 'fulfilled') setVerifications(Array.isArray(vData.value) ? vData.value : []);
-      if (lists.status === 'fulfilled') setTodayLists(lists.value || { cnpList: [], callAgainList: [], interestedList: [], notInterestedList: [] });
+      if (lists?.status === 'fulfilled') setTodayLists(lists.value || { cnpList: [], callAgainList: [], interestedList: [], notInterestedList: [], onHoldList: [], verificationList: [] });
       if (chart.status === 'fulfilled') setMonthlyChart(Array.isArray(chart.value) ? chart.value : []);
       if (att.status === 'fulfilled') setAttStatus(att.value);
     } catch { /* ignore */ }
@@ -239,14 +236,14 @@ export default function StaffDashboard() {
     logistics: 'bg-blue-50 text-blue-600 border-blue-100',
   };
 
-  const done = stats?.todayVerifications || 0;
+  const done = stats?.todayVerifications ?? stats?.verifiedCount ?? 0;
   const target = stats?.todayTarget || 0;
   const remaining = target > 0 ? Math.max(target - done, 0) : 0;
   const achieved = target > 0 && done >= target;
   const progressPct = target > 0 ? Math.min(Math.round((done / target) * 100), 100) : 0;
   const progressTone = achieved ? 'emerald' : progressPct >= 60 ? 'amber' : 'rose';
   const onHoldList = todayLists.onHoldList || [];
-  const dueWorkCount = verifications.filter(v => ['pending', 'on_hold'].includes(v.status)).length + (todayLists.callAgainList?.length || 0);
+  const dueWorkCount = (todayLists.verificationList || []).filter(v => ['pending', 'on_hold'].includes(v.status)).length + (todayLists.callAgainList?.length || 0);
   const today = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   const checkedIn = !!attStatus?.checkIn;
@@ -301,7 +298,7 @@ export default function StaffDashboard() {
 
   const [workFilter, setWorkFilter] = useState('today');
   const [workCustomDate, setWorkCustomDate] = useState('');
-  const [workLists, setWorkLists] = useState({ cnpList: [], callAgainList: [], interestedList: [], notInterestedList: [], onHoldList: [] });
+  const [workLists, setWorkLists] = useState({ cnpList: [], callAgainList: [], interestedList: [], notInterestedList: [], onHoldList: [], verificationList: [] });
   const [workLoading, setWorkLoading] = useState(false);
 
   useEffect(() => {
@@ -320,7 +317,7 @@ export default function StaffDashboard() {
     fetchStaffTodayLists(date, null, from, to)
       .then(d => {
         if (!cancelled) {
-          setWorkLists(d || { cnpList: [], callAgainList: [], interestedList: [], notInterestedList: [], onHoldList: [] });
+          setWorkLists(d || { cnpList: [], callAgainList: [], interestedList: [], notInterestedList: [], onHoldList: [], verificationList: [] });
           setOpenSection(null); // reset open section on filter change
         }
       })
@@ -330,7 +327,7 @@ export default function StaffDashboard() {
   }, [workFilter, workCustomDate]);
 
   const workQueues = [
-    { key: 'verifications', label: 'Verification Tasks', icon: icons.verification, color: 'text-blue-600', bg: 'bg-blue-50', list: verifications, path: '/verification' },
+    { key: 'verifications', label: 'Verification Tasks', icon: icons.verification, color: 'text-blue-600', bg: 'bg-blue-50', list: workLists.verificationList || [], path: '/verification' },
     { key: 'callAgain', label: 'Call Again', icon: icons.callAgain, color: 'text-yellow-600', bg: 'bg-yellow-50', list: workLists.callAgainList || [], path: '/call-again' },
     { key: 'cnp', label: 'CNP', icon: icons.cnp, color: 'text-red-500', bg: 'bg-red-50', list: workLists.cnpList || [], path: '/cnp' },
     { key: 'interested', label: 'Interested', icon: icons.interested, color: 'text-green-600', bg: 'bg-green-50', list: workLists.interestedList || [], path: '/pipeline' },
@@ -524,15 +521,15 @@ export default function StaffDashboard() {
           </div>
           <div className="grid grid-cols-3 gap-2 mt-5">
             <div className="rounded-xl bg-blue-50 text-blue-700 px-3 py-3">
-              <p className="text-lg font-black">{stats?.activity?.monthVerifications ?? stats?.monthVerifications ?? 0}</p>
+              <p className="text-lg font-black">{stats?.monthVerifications ?? 0}</p>
               <p className="text-[9px] font-bold uppercase tracking-wider">Month</p>
             </div>
             <div className="rounded-xl bg-purple-50 text-purple-700 px-3 py-3">
-              <p className="text-lg font-black">{stats?.tasks?.pending ?? 0}</p>
+              <p className="text-lg font-black">{stats?.pendingTasks ?? stats?.tasks?.pending ?? 0}</p>
               <p className="text-[9px] font-bold uppercase tracking-wider">Tasks</p>
             </div>
             <div className="rounded-xl bg-amber-50 text-amber-700 px-3 py-3">
-              <p className="text-lg font-black">{stats?.totalLeads ?? 0}</p>
+              <p className="text-lg font-black">{stats?.leadsAdded ?? 0}</p>
               <p className="text-[9px] font-bold uppercase tracking-wider">Leads</p>
             </div>
           </div>
@@ -813,7 +810,7 @@ export default function StaffDashboard() {
             {(() => {
               const withTarget = targetHistory.filter(r => r.target > 0);
               const totalTarget = withTarget.reduce((s, r) => s + r.target, 0);
-              const totalDone = withTarget.reduce((s, r) => s + r.completed, 0);
+              const totalDone = targetHistory.reduce((s, r) => s + r.completed, 0);
               const achievedDays = withTarget.filter(r => r.achieved).length;
               const overallPct = totalTarget > 0 ? Math.round((totalDone / totalTarget) * 100) : 0;
               return withTarget.length > 0 ? (
@@ -837,7 +834,7 @@ export default function StaffDashboard() {
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100">
-                    {['Date', 'Target', 'Done', 'Remaining', 'Status'].map(h => (
+                    {['Date', 'Target', 'Done', 'Remaining', 'Verified', 'Status'].map(h => (
                       <th key={h} className={`py-3 px-5 text-[10px] font-black uppercase tracking-widest text-gray-400 ${h === 'Date' ? 'text-left' : 'text-center'}`}>{h}</th>
                     ))}
                   </tr>
@@ -885,6 +882,12 @@ export default function StaffDashboard() {
                                 rem === 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'
                               }`}>{rem === 0 ? '✓' : rem}</span>
                             : <span className="text-gray-300 font-bold">—</span>}
+                        </td>
+                        {/* Verified */}
+                        <td className="py-3.5 px-5 text-center">
+                          <span className={`inline-flex items-center justify-center w-8 h-8 rounded-xl text-xs font-black ${
+                            row.verified > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-50 text-gray-300'
+                          }`}>{row.verified || 0}</span>
                         </td>
                         {/* Status */}
                         <td className="py-3.5 px-5">
