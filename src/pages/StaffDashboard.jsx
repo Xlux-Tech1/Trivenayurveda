@@ -254,8 +254,9 @@ export default function StaffDashboard() {
     setAttLoading(true);
     try { 
       const res = await attendanceSvc.checkIn(); 
-      setAttStatus(res); 
-      success('Good morning! You have checked in successfully.', 'Clock In');
+      setAttStatus(res);
+      const isReCheckIn = !!attStatus?.checkOut;
+      success(isReCheckIn ? 'Welcome back! Second session started.' : 'Good morning! You have checked in successfully.', 'Clock In');
     }
     catch (e) { error(e.response?.data?.message || 'Check-in failed'); }
     setAttLoading(false);
@@ -355,22 +356,7 @@ export default function StaffDashboard() {
     </div>
   );
 
-  if (!checkedIn) return (
-    <div className="flex flex-col items-center justify-center h-64 gap-5">
-      <div className="w-16 h-16 rounded-2xl bg-orange-100 flex items-center justify-center">
-        <svg className="w-8 h-8 text-orange-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      </div>
-      <div className="text-center">
-        <p className="text-lg font-bold text-gray-800">You haven't checked in yet</p>
-        <p className="text-sm text-gray-400 mt-1">Please clock in to access your dashboard and perform actions</p>
-      </div>
-      <button onClick={handleCheckIn} disabled={attLoading}
-        className="px-6 py-3 rounded-xl text-sm font-semibold text-white shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all disabled:opacity-60"
-        style={{ background: 'linear-gradient(135deg, #16a34a, #15803d)' }}>
-        {attLoading ? 'Processing...' : '🕐 Clock In Now'}
-      </button>
-    </div>
-  );
+  // No full-page gate — the attendance card below handles check-in/check-out inline.
 
   return (
     <div className="space-y-6 pb-10">
@@ -409,12 +395,15 @@ export default function StaffDashboard() {
                 <p className="text-white font-bold text-base leading-tight">
                   {checkedIn && checkedOut ? 'Day Complete 🎉'
                     : checkedIn ? `Working since ${fmtTime(attStatus.checkIn)}`
-                    : 'Not checked in yet'}
+                    : '⚠️ Not checked in yet'}
                 </p>
                 {checkedIn && checkedOut && (
-                  <p className="text-emerald-300/60 text-xs mt-0.5">In: {fmtTime(attStatus.checkIn)} · Out: {fmtTime(attStatus.checkOut)}</p>
+                  <div className="mt-1 space-y-0.5">
+                    <p className="text-emerald-300/70 text-xs">🕐 In: <span className="font-bold text-emerald-300">{fmtTime(attStatus.checkIn)}</span> &nbsp;·&nbsp; 🕔 Out: <span className="font-bold text-emerald-300">{fmtTime(attStatus.checkOut)}</span></p>
+                    {attStatus.sessionDuration && <p className="text-emerald-300/60 text-xs font-mono">⏱ Total: <span className="font-bold text-emerald-200">{attStatus.sessionDuration}</span></p>}
+                  </div>
                 )}
-                {workingTime && (
+                {workingTime && !checkedOut && (
                   <p className="text-emerald-300/80 text-xs font-mono mt-0.5">⏱ {workingTime}</p>
                 )}
                 {/* Day-based motivation line */}
@@ -453,10 +442,12 @@ export default function StaffDashboard() {
                   {attLoading ? 'Processing...' : 'Clock Out'}
                 </button>
               ) : (
-                <div className="flex items-center gap-2 px-5 py-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(74,222,128,0.3)' }}>
-                  <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-                  <span className="text-emerald-300 text-sm font-black">Day Complete</span>
-                </div>
+                <button onClick={handleCheckIn} disabled={attLoading}
+                  className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-black text-emerald-900 shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all disabled:opacity-60"
+                  style={{ background: 'linear-gradient(135deg, #4ade80, #22c55e)' }}>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+                  {attLoading ? 'Processing...' : 'Clock In Again'}
+                </button>
               )}
             </div>
           </div>

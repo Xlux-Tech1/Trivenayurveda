@@ -28,6 +28,7 @@ import Shipmaxx from './pages/Shipmaxx';
 import NdrPage from './pages/NdrPage';
 import ShipmaxxNdr from './pages/ShipmaxxNdr';
 import ShipmaxxFollowup from './pages/ShipmaxxFollowup';
+import Whatsapp from './pages/Whatsapp';
 
 function AppRoutes() {
   const { user } = useAuth();
@@ -105,6 +106,9 @@ function AppRoutes() {
         } />
         <Route path="shipmaxx/followup" element={
           <ProtectedRoute roles={['admin', 'manager', 'sales', 'logistics', 'support']}><ShipmaxxFollowup /></ProtectedRoute>
+        } />
+        <Route path="whatsapp" element={
+          <ProtectedRoute roles={['admin', 'manager', 'sales', 'support']}><Whatsapp /></ProtectedRoute>
         } />
         <Route path="orders/:id" element={
           <ProtectedRoute roles={['admin', 'manager', 'sales', 'support', 'logistics']}><OrderDetail /></ProtectedRoute>

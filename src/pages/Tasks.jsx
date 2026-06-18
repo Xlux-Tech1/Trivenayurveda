@@ -1,11 +1,10 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { getTasks, getDailyTasks, createTask, updateTask, deleteTask, addTaskNote, deleteCnpRecord, getTask } from '../services/task.service';
-import API from '../api';
-import { getLeads, updateLead, createCallAgain } from '../services/lead.service';
+import { getTasks, getDailyTasks, createTask, updateTask, deleteTask, addTaskNote, getTask } from '../services/task.service';
 import { getUsers } from '../services/user.service';
 import Modal from '../components/ui/Modal';
+import Whatsapp from './Whatsapp';
 
 const PIN_COLORS = [
   'bg-emerald-500', 'bg-blue-500', 'bg-indigo-500',
@@ -77,6 +76,9 @@ export default function Tasks() {
   const [pincodeData, setPincodeData] = useState([]);
   const [pincodeLoading, setPincodeLoading] = useState(false);
 
+  const [showWhatsappModal, setShowWhatsappModal] = useState(false);
+  const [whatsappLeadId, setWhatsappLeadId] = useState(null);
+
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -97,6 +99,8 @@ export default function Tasks() {
       setLoadError(err.response?.data?.message || err.message || 'Failed to load tasks');
     } finally { setPageLoading(false); }
   }, [filters]);
+
+  useEffect(() => { load(); }, [load]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -326,7 +330,7 @@ export default function Tasks() {
   return (
     <div className="flex gap-4 scroll-container-h overflow-hidden animate-slide-up mobile-p-safe">
       {/* ── LEFT PANEL ── */}
-      <div className={`flex flex-col gap-4 transition-all duration-300 ${selected ? 'w-full lg:w-[55%]' : 'w-full'} h-full overflow-hidden`}>
+      <div className={`flex flex-col gap-4 transition-all duration-300 ${selected ? 'hidden lg:flex lg:w-[40%]' : 'w-full'} h-full overflow-hidden`}>
         
         {/* Header & Filters */}
         <div className="flex flex-col gap-5 shrink-0 glass p-5 rounded-2xl border border-white/50 shadow-sm">
@@ -348,6 +352,11 @@ export default function Tasks() {
                 + New Task
               </button>
             </div>
+            <button onClick={() => { setWhatsappLeadId(null); setShowWhatsappModal(true); }}
+              className="flex items-center justify-center gap-2 px-5 py-2 rounded-xl text-xs font-bold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 transition-all shadow-sm">
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.125.558 4.12 1.532 5.845L.057 23.941l6.26-1.643A11.95 11.95 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.818 9.818 0 0 1-5.034-1.383l-.36-.214-3.732.979.998-3.642-.235-.374A9.818 9.818 0 1 1 12 21.818z"/></svg>
+              Open WhatsApp
+            </button>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-4">
@@ -363,105 +372,105 @@ export default function Tasks() {
               />
             </div>
             <div className="flex gap-2">
-              {canManage && (
-                <select value={filters.department} onChange={(e) => setFilters(f => ({ ...f, department: e.target.value }))}
-                  className="border border-gray-100 rounded-xl px-4 py-2 text-xs bg-white font-bold text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-400 shadow-sm min-w-[120px]">
-                  <option value="">All Depts</option>
-                  {DEPARTMENTS.map(d => <option key={d} value={d}>{d.toUpperCase()}</option>)}
-                </select>
-              )}
-              {tab === 'all' && (
-                <select value={filters.type} onChange={(e) => setFilters(f => ({ ...f, type: e.target.value }))}
-                  className="border border-gray-100 rounded-xl px-4 py-2 text-xs bg-white font-bold text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-400 shadow-sm min-w-[120px]">
-                  <option value="">All Types</option>
-                  {TYPES.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
-                </select>
-              )}
+                {canManage && (
+                  <select value={filters.department} onChange={(e) => setFilters(f => ({ ...f, department: e.target.value }))}
+                    className="border border-gray-100 rounded-xl px-4 py-2 text-xs bg-white font-bold text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-400 shadow-sm min-w-[120px]">
+                    <option value="">All Depts</option>
+                    {DEPARTMENTS.map(d => <option key={d} value={d}>{d.toUpperCase()}</option>)}
+                  </select>
+                )}
+                {tab === 'all' && (
+                  <select value={filters.type} onChange={(e) => setFilters(f => ({ ...f, type: e.target.value }))}
+                    className="border border-gray-100 rounded-xl px-4 py-2 text-xs bg-white font-bold text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-400 shadow-sm min-w-[120px]">
+                    <option value="">All Types</option>
+                    {TYPES.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
+                  </select>
+                )}
+              </div>
             </div>
-          </div>
         </div>
 
         {/* List */}
         <div className="flex items-center justify-between px-2 mb-1 shrink-0">
           <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-            Showing {filteredItems.length} {filteredItems.length === 1 ? 'Task' : 'Tasks'}
+            {`Showing ${filteredItems.length} ${filteredItems.length === 1 ? 'Task' : 'Tasks'}`}
           </span>
         </div>
         <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar">
           {filteredItems.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 bg-white rounded-2xl border border-dashed border-gray-200">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-300 flex items-center justify-center mb-3">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+              <div className="flex flex-col items-center justify-center py-20 bg-white rounded-2xl border border-dashed border-gray-200">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-300 flex items-center justify-center mb-3">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                </div>
+                <p className="text-gray-500 text-sm font-medium">No active tasks found</p>
               </div>
-              <p className="text-gray-500 text-sm font-medium">No active tasks found</p>
-            </div>
-          ) : (
-            <div className="space-y-2 pb-4">
-              {filteredItems.map((task, i) => {
-                const color = PIN_COLORS[i % PIN_COLORS.length];
-                const isActive = selected?._id === task._id;
-                const isCompleted = task.status === 'completed';
-                
-                return (
-                  <div key={task._id} onClick={() => setSelected(isActive ? null : task)}
-                    className={`relative flex items-center gap-4 px-4 py-3.5 rounded-2xl cursor-pointer transition-all duration-200 border
-                      ${isActive
-                        ? 'bg-emerald-50 border-emerald-200 shadow-sm'
-                        : 'bg-white border-gray-100 hover:border-emerald-200 hover:bg-emerald-50/30'}`}>
-                    
-                    <div className={`absolute left-0 top-3 bottom-3 w-1 rounded-r-full ${isCompleted ? 'bg-gray-300' : 'bg-emerald-500'}`} />
-                    
-                    <div className="text-xs font-black text-gray-300 w-6 text-right shrink-0 select-none">
-                      {i + 1}.
-                    </div>
+            ) : (
+              <div className="space-y-2 pb-4">
+                {filteredItems.map((task, i) => {
+                  const color = PIN_COLORS[i % PIN_COLORS.length];
+                  const isActive = selected?._id === task._id;
+                  const isCompleted = task.status === 'completed';
+                  
+                  return (
+                    <div key={task._id} onClick={() => setSelected(isActive ? null : task)}
+                      className={`relative flex items-center gap-4 px-4 py-3.5 rounded-2xl cursor-pointer transition-all duration-200 border
+                        ${isActive
+                          ? 'bg-emerald-50 border-emerald-200 shadow-sm'
+                          : 'bg-white border-gray-100 hover:border-emerald-200 hover:bg-emerald-50/30'}`}>
+                      
+                      <div className={`absolute left-0 top-3 bottom-3 w-1 rounded-r-full ${isCompleted ? 'bg-gray-300' : 'bg-emerald-500'}`} />
+                      
+                      <div className="text-xs font-black text-gray-300 w-6 text-right shrink-0 select-none">
+                        {i + 1}.
+                      </div>
 
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white text-xs font-bold shrink-0 ${isCompleted ? 'bg-gray-300' : color}`}>
-                      {initials(task.lead?.name || task.title)}
-                    </div>
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white text-xs font-bold shrink-0 ${isCompleted ? 'bg-gray-300' : color}`}>
+                        {initials(task.lead?.name || task.title)}
+                      </div>
 
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className={`text-sm font-bold text-gray-800 truncate ${isCompleted ? 'line-through text-gray-400' : ''}`}>{task.title}</p>
-                        {isCompleted && (
-                          <span className="bg-emerald-100 text-emerald-600 text-[9px] font-black px-1.5 py-0.5 rounded-md uppercase">Done</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className={`text-sm font-bold text-gray-800 truncate ${isCompleted ? 'line-through text-gray-400' : ''}`}>{task.title}</p>
+                          {isCompleted && (
+                            <span className="bg-emerald-100 text-emerald-600 text-[9px] font-black px-1.5 py-0.5 rounded-md uppercase">Done</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-gray-400 font-medium">{task.lead?.name || 'No Lead'}</span>
+                          <span className="text-xs text-gray-300">•</span>
+                          <span className="text-[10px] text-gray-400 font-bold uppercase">{task.type.replace(/_/g, ' ')}</span>
+                          {task.department && (
+                            <>
+                              <span className="text-xs text-gray-300">•</span>
+                              <span className="text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded uppercase">{task.department}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="hidden sm:flex flex-col items-end gap-1 shrink-0">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                          {new Date(task.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        </span>
+                        {task.assignedTo?.name && (
+                          <span className="text-[10px] text-gray-400 font-medium">For {task.assignedTo.name}</span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs text-gray-400 font-medium">{task.lead?.name || 'No Lead'}</span>
-                        <span className="text-xs text-gray-300">•</span>
-                        <span className="text-[10px] text-gray-400 font-bold uppercase">{task.type.replace(/_/g, ' ')}</span>
-                        {task.department && (
-                          <>
-                            <span className="text-xs text-gray-300">•</span>
-                            <span className="text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded uppercase">{task.department}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
 
-                    <div className="hidden sm:flex flex-col items-end gap-1 shrink-0">
-                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                        {new Date(task.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                      </span>
-                      {task.assignedTo?.name && (
-                        <span className="text-[10px] text-gray-400 font-medium">For {task.assignedTo.name}</span>
-                      )}
+                      <svg className={`w-4 h-4 text-gray-300 transition-transform ${isActive ? 'rotate-90 text-emerald-400' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path d="m9 18 6-6-6-6" />
+                      </svg>
                     </div>
-
-                    <svg className={`w-4 h-4 text-gray-300 transition-transform ${isActive ? 'rotate-90 text-emerald-400' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path d="m9 18 6-6-6-6" />
-                    </svg>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            )}
         </div>
       </div>
 
       {/* ── RIGHT DETAIL PANEL ── */}
       {selected && (
-        <div className="hidden lg:flex flex-col w-[45%] bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden h-full">
+        <div className="hidden lg:flex flex-col w-[60%] bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden h-full">
           <div className={`h-1.5 shrink-0 ${selected.status === 'completed' ? 'bg-gray-300' : 'bg-emerald-500'}`} />
           
           <div className="px-5 py-4 flex items-center justify-between border-b border-gray-50 shrink-0">
@@ -602,7 +611,7 @@ export default function Tasks() {
       )}
 
       {/* Mobile Modal Detail */}
-      {selected && (
+      {selected && tab !== 'chat' && (
         <div className="lg:hidden">
           <Modal hideHeader={true} onClose={() => setSelected(null)}>
             <div className="flex flex-col h-[80vh]">
@@ -809,6 +818,13 @@ export default function Tasks() {
             )}
           </form>
         </Modal>
+      )}
+
+      {showWhatsappModal && (
+        <Whatsapp 
+          onClose={() => setShowWhatsappModal(false)} 
+          initialLeadId={whatsappLeadId} 
+        />
       )}
     </div>
   );
