@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { getTasks, getDailyTasks, createTask, updateTask, deleteTask, addTaskNote, getTask } from '../services/task.service';
 import { getUsers } from '../services/user.service';
+import { updateLead, createCallAgain } from '../services/lead.service';
 import Modal from '../components/ui/Modal';
 import Whatsapp from './Whatsapp';
 
@@ -284,9 +285,9 @@ export default function Tasks() {
         if (leadId) await updateLead(leadId, { status: 'closed_lost' }).catch(() => {});
         setSelected(prev => ({ ...prev, status: 'cancel_call', notes: finalNotes }));
       } else if (action === 'callagain') {
-        await updateTask(selected._id, { status: 'cancelled' }).catch(() => {});
-        if (leadId) await createCallAgain(leadId, finalNotes).catch(() => {});
-        setSelected(prev => ({ ...prev, status: 'cancelled', notes: finalNotes }));
+        // createCallAgain API already sets: lead → follow_up, tasks → cancel_call
+        if (leadId) await createCallAgain(leadId, finalNotes);
+        setSelected(prev => ({ ...prev, status: 'cancel_call', notes: finalNotes }));
       }
       load();
     } catch (err) {
@@ -573,14 +574,14 @@ export default function Tasks() {
                   ✓ Marked as CNP
                 </div>
               )}
-              {selected.status === 'cancel_call' && (
-                <div className="flex items-center justify-center bg-red-50 text-red-600 rounded-xl py-3 mt-4 text-xs font-bold">
-                  ✓ Marked as Loss
-                </div>
-              )}
-              {selected.status === 'cancelled' && (
+              {selected.status === 'cancel_call' && selected.lead?.status === 'follow_up' && (
                 <div className="flex items-center justify-center bg-amber-50 text-amber-600 rounded-xl py-3 mt-4 text-xs font-bold">
                   ✓ Moved to Call Again
+                </div>
+              )}
+              {selected.status === 'cancel_call' && selected.lead?.status !== 'follow_up' && (
+                <div className="flex items-center justify-center bg-red-50 text-red-600 rounded-xl py-3 mt-4 text-xs font-bold">
+                  ✓ Marked as Loss
                 </div>
               )}
             </div>
@@ -671,11 +672,11 @@ export default function Tasks() {
                 {selected.status === 'cnp' && (
                   <div className="w-full py-3 bg-orange-50 text-orange-600 rounded-xl text-sm font-bold text-center">✓ Marked as CNP</div>
                 )}
-                {selected.status === 'cancel_call' && (
-                  <div className="w-full py-3 bg-red-50 text-red-600 rounded-xl text-sm font-bold text-center">✓ Marked as Loss</div>
-                )}
-                {selected.status === 'cancelled' && (
+                {selected.status === 'cancel_call' && selected.lead?.status === 'follow_up' && (
                   <div className="w-full py-3 bg-amber-50 text-amber-600 rounded-xl text-sm font-bold text-center">✓ Moved to Call Again</div>
+                )}
+                {selected.status === 'cancel_call' && selected.lead?.status !== 'follow_up' && (
+                  <div className="w-full py-3 bg-red-50 text-red-600 rounded-xl text-sm font-bold text-center">✓ Marked as Loss</div>
                 )}
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={() => openEdit(selected)} className="py-4 rounded-xl text-sm font-bold bg-gray-100 text-gray-600">Edit</button>
