@@ -20,11 +20,23 @@ export const createShipment = (body) => api.post(`${BASE}/shipping/create-shipme
 export const trackShipment  = (awb)  => api.get(`${BASE}/shipping/track-shipment`, { params: { awb } });
 export const generateLabel  = (awb)  => api.get(`${BASE}/shipping/generate-label`, { params: { awb } });
 export const getManifest    = (awb)  => api.get(`${BASE}/shipping/manifest/${awb}`);
+export const cancelShipment = (body) => api.post(`${BASE}/shipping/cancel-shipment`, body);
+export const checkServiceability = (body) => api.post(`${BASE}/shipping/serviceability`, body);
+export const getShipments   = (params) => api.get(`${BASE}/shipping/shipments`, { params });
+export const getShipmentById = (shipment_id) => api.get(`${BASE}/shipping/shipments/${shipment_id}`);
+
+// ── Warehouses ────────────────────────────────────────────────────────────────
+export const getWarehouses   = (params) => api.get(`${BASE}/warehouses`, { params });
+export const createWarehouse = (body)   => api.post(`${BASE}/warehouses/create`, body);
 
 // ── Invoice ───────────────────────────────────────────────────────────────────
 export const getInvoice = (order_id) => api.get(`${BASE}/invoice/${order_id}`);
 
-// ── NDR Notes ─────────────────────────────────────────────────────────────────
+// ── NDR & NDR Notes ───────────────────────────────────────────────────────────
+export const getNdrList    = (params) => api.get(`${BASE}/ndr`, { params });
+export const ndrAction     = (ndr_id, body) => api.post(`${BASE}/ndr/${ndr_id}/action`, body);
+export const ndrBulkAction = (body)   => api.post(`${BASE}/ndr/bulk-action`, body);
+
 export const getNdrNotes   = (params)   => api.get(`${BASE}/ndr/notes`, { params });
 export const createNdrNote = (body)     => api.post(`${BASE}/ndr/notes`, body);
 export const updateNdrNote = (id, body) => api.put(`${BASE}/ndr/notes/${id}`, body);
